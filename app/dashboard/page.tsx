@@ -1,369 +1,240 @@
 "use client";
 
-import { useState } from "react";
-import { supabase } from "@/lib/supabase";
-import { useRouter } from "next/navigation";
-
-const travelStyles = [
-  { id: "adventure", label: "Adventure", icon: "🧗", desc: "Hiking & extreme sports" },
-  { id: "relaxation", label: "Relaxation", icon: "🏖️", desc: "Beach, spa & slow travel" },
-  { id: "culture", label: "Culture", icon: "🏛️", desc: "Museum & local heritage" },
-  { id: "food", label: "Food", icon: "🍜", desc: "Culinary & street food" },
-];
-
-
-
+import { CSS } from "./styles";
+import { HERO_DESTINATIONS, KATEGORI_META } from "./constants";
+import { useDashboard } from "./hooks";
+import { FormFields } from "./components/FormFields";
+import { DayCards } from "./components/DayCards";
+import { BudgetPanel } from "./components/BudgetPanel";
+import { FlyingPlane } from "./components/FlyingPlane";
+import { RunningFamily } from "./components/RunningFamily";
+import { HeroScene } from "./components/HeroScene";
+import { UserMenu } from "./components/UserMenu";
+import { formatIDR } from "./utils";
+import { useEffect, useState } from "react";
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState("");
-  const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    destination: "",
-    startDate: "",
-    endDate: "",
-    budget: "",
-    travelers: 2,
-    style: "",
-  });
+  const [isMobile, setIsMobile] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  const {
+    form, days, inputBudgetTotal, loading, dayPlans, budget,
+    error, saveStatus, activeTab, editingDay, editBuffer, expandedDay,
+    setActiveTab, setEditBuffer,
+    handleChange, handleBudgetChange, handleExtraBudgetChange,
+    handleTravelersChange, handleStyleChange,
+    handleToggleExpand, handleStartEdit, handleSaveEdit, handleCancelEdit,
+    handleExportPDF, handleGenerate,
+    handleRegenerateDay, handleRemoveSession, handleAddCustomActivity,
+    handleReorderDay, handleTimingChange,
+    handleReorderSession,
+    handleAddSession,
+    handleRemoveSessionById,
+    handleUpdateSession,
+    handleRemoveSessionDirect,
+    loadFromHistory,
+    handleShareHistory,
+    shareToast,
+    handleSaveBudget,
+    handleTambahBudget, 
+  } = useDashboard();
+
+  const dayCardsProps = {
+    dayPlans, loading, saveStatus, expandedDay, editingDay, editBuffer,
+    onToggleExpand: handleToggleExpand,
+    onStartEdit: handleStartEdit,
+    onSaveEdit: handleSaveEdit,
+    onCancelEdit: handleCancelEdit,
+    onEditBufferChange: setEditBuffer,
+    onExportPDF: handleExportPDF,
+    onRegenerateDay: handleRegenerateDay,
+    onRemoveSession: handleRemoveSession,
+    onAddCustomActivity: handleAddCustomActivity,
+    onReorderDay: handleReorderDay,
+    onTimingChange: handleTimingChange,
+    onReorderSession: handleReorderSession,
+    onAddSession: handleAddSession,
+    onRemoveSessionById: handleRemoveSessionById,
+    onUpdateSession: handleUpdateSession,
+    onRemoveSessionDirect: handleRemoveSessionDirect,
   };
 
-  const calculateDays = () => {
-    if (!form.startDate || !form.endDate) return 0;
-    const diff = Math.ceil(
-      (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) /
-      (1000 * 60 * 60 * 24)
-    );
-    return diff > 0 ? diff : 0;
+  const formProps = {
+    form, days, loading, error,
+    onFieldChange: handleChange,
+    onBudgetChange: handleBudgetChange,
+    onExtraBudgetChange: handleExtraBudgetChange,
+    onTravelersChange: handleTravelersChange,
+    onStyleChange: handleStyleChange,
+    onSubmit: handleGenerate,
   };
 
-  const formatIDR = (value: string) => {
-    const num = value.replace(/\D/g, "");
-    return num.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const budgetProps = {
+    budget, loading, travelers: form.travelers,
+    budgetInput: form.budget, inputBudgetTotal,
+    onSaveBudget: handleSaveBudget,
+    onTambahBudget: handleTambahBudget, 
   };
-
-  const handleBudgetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, budget: e.target.value.replace(/\./g, "") });
-  };
-
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setResult("");
-    const days = calculateDays();
-    if (!form.destination) return setError("Destination harus diisi");
-    if (!form.startDate || !form.endDate) return setError("Tanggal harus diisi");
-    if (days <= 0) return setError("End date harus setelah start date");
-    if (!form.budget) return setError("Budget harus diisi");
-    if (!form.style) return setError("Pilih travel style terlebih dahulu");
-    setLoading(true);
-
-    const prompt = `Kamu adalah travel planner expert. Buatkan itinerary perjalanan yang detail dengan informasi berikut:
-- Destinasi: ${form.destination}
-- Tanggal: ${form.startDate} sampai ${form.endDate} (${days} hari)
-- Budget per orang: Rp ${formatIDR(form.budget)}
-- Jumlah traveler: ${form.travelers} orang
-- Total budget: Rp ${formatIDR(String(Number(form.budget) * form.travelers))}
-- Travel style: ${form.style}
-
-Format itinerary per hari:
-**Hari 1 - [Tanggal]**
-- Pagi: ...
-- Siang: ...
-- Malam: ...
-- Estimasi biaya: Rp ...
-
-Sertakan tips, estimasi total pengeluaran, rekomendasi transportasi & akomodasi. Gunakan bahasa Indonesia yang santai.`;
-
-    try {
-      const response = await fetch("/api/itinerary", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-      const data = await response.json();
-      const text = data.text || "";
-      setResult(text);
-    } catch {
-      setError("Gagal generate itinerary, coba lagi.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const days = calculateDays();
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#f4f6fb", fontFamily: "system-ui, sans-serif" }}>
+    <div className="min-h-screen" style={{ background: "#f0f4f8", fontFamily: "'DM Sans', sans-serif" }}>
+      <style>{CSS}</style>
+
+      {/* PDF Print Area */}
+      <div id="pdf-print-area" style={{ position: "absolute", left: "-9999px", top: 0, width: 800, padding: 32, fontFamily: "sans-serif", color: "#0f172a" }}>
+        <h1 style={{ fontSize: 22, marginBottom: 4 }}>✈️ Itinerary — {form.destination}</h1>
+        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 24 }}>
+          {form.startDate} s/d {form.endDate} · {form.travelers} orang · Style: {form.style}
+          {Number(form.extraBudget) > 0 && ` · Tambahan: Rp ${formatIDR(form.extraBudget)}`}
+        </div>
+        {dayPlans.map((dp) => (
+          <div key={dp.day} style={{ marginBottom: 20, borderBottom: "1px solid #e2e8f0", paddingBottom: 16 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>Hari {dp.day} — {dp.date}</div>
+            {dp.sessions?.length ? dp.sessions.map((s) => (
+              <div key={s.id} style={{ marginBottom: 6, fontSize: 13 }}>
+                <strong>{s.icon} {s.label}:{s.time ? ` (${s.time})` : ""}</strong> {s.content || "-"}
+              </div>
+            )) : (
+              <>
+                <div style={{ marginBottom: 6, fontSize: 13 }}><strong>🌅 Pagi:</strong> {dp.pagi || "-"}</div>
+                <div style={{ marginBottom: 6, fontSize: 13 }}><strong>☀️ Siang:</strong> {dp.siang || "-"}</div>
+                <div style={{ marginBottom: 6, fontSize: 13 }}><strong>🌙 Malam:</strong> {dp.malam || "-"}</div>
+              </>
+            )}
+            {dp.estimasiBiaya && (
+              <div style={{ fontSize: 12, color: "#0369a1", fontWeight: 600, marginTop: 6 }}>
+                💸 Estimasi: {dp.estimasiBiaya}
+              </div>
+            )}
+          </div>
+        ))}
+        {budget && (
+          <div style={{ marginTop: 16, padding: "12px 14px", border: "1px solid #e2e8f0", borderRadius: 10 }}>
+            <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 8 }}>💰 Total: Rp {formatIDR(budget.totalEstimasi)}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, fontSize: 11 }}>
+              {KATEGORI_META.map((m) => (
+                <div key={m.key}>
+                  <div style={{ color: "#64748b" }}>{m.icon} {m.label}</div>
+                  <div style={{ fontWeight: 700 }}>Rp {formatIDR(budget[m.key as keyof typeof budget])}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Navbar */}
-      <nav style={{
-        backgroundColor: "#fff",
-        borderBottom: "1px solid #e8edf2",
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-        boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
-      }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 22 }}>✈️</span>
-            <span style={{ fontWeight: 800, fontSize: 20, color: "#1a1a2e" }}>
-              Travel<span style={{ color: "#0194f3" }}>.</span>
+      <nav className="nav-glass sticky top-0 z-50">
+        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 16px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, overflow: "hidden" }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: "linear-gradient(135deg, #0369a1, #38bdf8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>✈️</div>
+            <span className="font-display" style={{ fontSize: isMobile ? 16 : 19, fontStyle: "italic", color: "#0f172a", letterSpacing: -0.3, flexShrink: 0 }}>
+              Travel<span style={{ color: "#0ea5e9" }}>.</span>
             </span>
+            {!isMobile && <>
+              <div style={{ width: 1, height: 28, background: "#e2e8f0", margin: "0 2px", flexShrink: 0 }} />
+              <FlyingPlane />
+              <div style={{ width: 1, height: 28, background: "#e2e8f0", margin: "0 2px", flexShrink: 0 }} />
+              <RunningFamily />
+            </>}
           </div>
-          <button
-            onClick={async () => { await supabase.auth.signOut(); router.push("/login"); }}
-            style={{
-              fontSize: 13, color: "#666", border: "1px solid #dde1e7",
-              borderRadius: 8, padding: "7px 16px", background: "none", cursor: "pointer"
-            }}
-          >
-            Logout
-          </button>
+          <UserMenu
+            onLoadHistory={loadFromHistory}
+            onShareHistory={handleShareHistory}
+            shareToast={shareToast}
+          />
         </div>
       </nav>
 
       {/* Hero */}
-      <div style={{ background: "linear-gradient(135deg, #003d99 0%, #0062cc 50%, #0194f3 100%)", color: "#fff", padding: "40px 24px" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <div style={{ display: "inline-block", background: "rgba(255,255,255,0.15)", borderRadius: 20, padding: "4px 14px", fontSize: 12, marginBottom: 12, backdropFilter: "blur(4px)" }}>
-            ✨ AI-Powered Travel Planner
+      <div className="hero-bg" style={{ padding: "28px 16px 36px" }}>
+        <div className="hero-grid" />
+        <HeroScene />
+        <div style={{ maxWidth: 1180, margin: "0 auto", position: "relative", zIndex: 1 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 16, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none" as const }}>
+            {HERO_DESTINATIONS.map((d) => <span key={d} className="dest-tag" style={{ flexShrink: 0 }}>{d}</span>)}
           </div>
-          <h1 style={{ fontSize: 32, fontWeight: 800, margin: "0 0 8px", letterSpacing: -0.5 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(56,189,248,0.15)", border: "1px solid rgba(56,189,248,0.3)", borderRadius: 99, padding: "4px 12px", fontSize: 10, fontWeight: 700, color: "#7dd3fc", letterSpacing: "0.08em", textTransform: "uppercase" as const, marginBottom: 12 }}>
+            <span>✦</span> AI-Powered Travel Planner
+          </div>
+          <h1 className="font-display" style={{ fontSize: "clamp(22px, 6vw, 44px)", fontStyle: "italic", color: "white", letterSpacing: -0.5, lineHeight: 1.2, margin: "0 0 8px" }}>
             Rencanakan perjalanan impianmu
           </h1>
-          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", margin: 0 }}>
-            Isi detail tripmu dan biarkan AI buatkan itinerary terbaik secara otomatis.
+          <p style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, maxWidth: 480, lineHeight: 1.6, margin: 0 }}>
+            Isi detail tripmu dan biarkan AI buatkan itinerary lengkap beserta estimasi budget.
           </p>
         </div>
       </div>
 
-      {/* Main */}
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 24px", display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: 24, alignItems: "start" }}>
-
-        {/* Form */}
-        <form onSubmit={handleGenerate} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
-          {/* Trip Details */}
-          <div style={{ background: "#fff", borderRadius: 16, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #edf0f5" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#0194f3", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 16 }}>
-              📍 Trip Details
-            </div>
-
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Destinasi</label>
-              <input
-                type="text"
-                name="destination"
-                value={form.destination}
-                onChange={handleChange}
-                placeholder="Contoh: Bali, Tokyo, Paris"
-                style={{
-                  width: "100%", boxSizing: "border-box", border: "1.5px solid #e2e8f0",
-                  borderRadius: 10, padding: "11px 14px", fontSize: 14, color: "#1a1a2e",
-                  outline: "none", transition: "border 0.2s"
-                }}
-                onFocus={e => e.target.style.borderColor = "#0194f3"}
-                onBlur={e => e.target.style.borderColor = "#e2e8f0"}
-              />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Tanggal Mulai</label>
-                <input
-                  type="date"
-                  name="startDate"
-                  value={form.startDate}
-                  onChange={handleChange}
-                  style={{
-                    width: "100%", boxSizing: "border-box", border: "1.5px solid #e2e8f0",
-                    borderRadius: 10, padding: "11px 12px", fontSize: 13, color: "#1a1a2e", outline: "none"
-                  }}
-                  onFocus={e => e.target.style.borderColor = "#0194f3"}
-                  onBlur={e => e.target.style.borderColor = "#e2e8f0"}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Tanggal Selesai</label>
-                <input
-                  type="date"
-                  name="endDate"
-                  value={form.endDate}
-                  onChange={handleChange}
-                  style={{
-                    width: "100%", boxSizing: "border-box", border: "1.5px solid #e2e8f0",
-                    borderRadius: 10, padding: "11px 12px", fontSize: 13, color: "#1a1a2e", outline: "none"
-                  }}
-                  onFocus={e => e.target.style.borderColor = "#0194f3"}
-                  onBlur={e => e.target.style.borderColor = "#e2e8f0"}
-                />
-              </div>
-            </div>
-
-            {days > 0 && (
-              <div style={{ marginTop: 12, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8 }}>
-                <span>🗓️</span>
-                <span style={{ color: "#0194f3", fontWeight: 600, fontSize: 13 }}>{days} hari perjalanan</span>
-              </div>
-            )}
-          </div>
-
-          {/* Budget & Travelers */}
-          <div style={{ background: "#fff", borderRadius: 16, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #edf0f5" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#0194f3", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 16 }}>
-              💰 Budget & Travelers
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Budget per Orang</label>
-              <div style={{ position: "relative" }}>
-                <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#999", fontWeight: 600 }}>Rp</span>
-                <input
-                  type="text"
-                  value={formatIDR(form.budget)}
-                  onChange={handleBudgetChange}
-                  placeholder="5.000.000"
-                  style={{
-                    width: "100%", boxSizing: "border-box", border: "1.5px solid #e2e8f0",
-                    borderRadius: 10, padding: "11px 14px 11px 38px", fontSize: 14, color: "#1a1a2e", outline: "none"
-                  }}
-                  onFocus={e => e.target.style.borderColor = "#0194f3"}
-                  onBlur={e => e.target.style.borderColor = "#e2e8f0"}
-                />
-              </div>
-              {form.budget && form.travelers > 1 && (
-                <p style={{ fontSize: 12, color: "#888", marginTop: 6 }}>
-                  Total: <strong style={{ color: "#333" }}>Rp {formatIDR(String(Number(form.budget) * form.travelers))}</strong> untuk {form.travelers} orang
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 10 }}>Jumlah Traveler</label>
-              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                <button type="button"
-                  onClick={() => setForm({ ...form, travelers: Math.max(1, form.travelers - 1) })}
-                  style={{ width: 38, height: 38, borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#444" }}
-                >−</button>
-                <div style={{ textAlign: "center", minWidth: 40 }}>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: "#1a1a2e" }}>{form.travelers}</div>
-                  <div style={{ fontSize: 11, color: "#aaa" }}>orang</div>
-                </div>
-                <button type="button"
-                  onClick={() => setForm({ ...form, travelers: Math.min(10, form.travelers + 1) })}
-                  style={{ width: 38, height: 38, borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#444" }}
-                >+</button>
-                <span style={{ fontSize: 12, color: "#aaa" }}>maks. 10 orang</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Travel Style */}
-          <div style={{ background: "#fff", borderRadius: 16, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #edf0f5" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#0194f3", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 16 }}>
-              🎯 Travel Style
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {travelStyles.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setForm({ ...form, style: s.id })}
-                  style={{
-                    display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4,
-                    padding: "14px 14px", borderRadius: 12, cursor: "pointer", textAlign: "left",
-                    border: form.style === s.id ? "2px solid #0194f3" : "1.5px solid #e2e8f0",
-                    background: form.style === s.id ? "#eff6ff" : "#fafbfc",
-                    transition: "all 0.15s"
-                  }}
-                >
-                  <span style={{ fontSize: 22 }}>{s.icon}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: form.style === s.id ? "#0194f3" : "#333" }}>{s.label}</span>
-                  <span style={{ fontSize: 11, color: "#999", lineHeight: 1.4 }}>{s.desc}</span>
+      {/* Desktop */}
+      {!isMobile && (
+        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "28px 24px 64px", display: "grid", gridTemplateColumns: "380px 1fr", gap: 24, alignItems: "start" }}>
+          <FormFields {...formProps} />
+          <div className="form-card" style={{ overflow: "hidden" }}>
+            <div style={{ display: "flex", borderBottom: "1px solid #f1f5f9" }}>
+              {[{ key: "itinerary", label: "🗺️  Itinerary" }, { key: "budget", label: "💰  Budget" }].map((tab) => (
+                <button key={tab.key} onClick={() => setActiveTab(tab.key as any)}
+                  style={{ flex: 1, padding: "14px", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: activeTab === tab.key ? "white" : "#fafbfc", color: activeTab === tab.key ? "#0ea5e9" : "#94a3b8", borderBottom: activeTab === tab.key ? "2px solid #0ea5e9" : "2px solid transparent", transition: "all 0.15s", fontFamily: "'DM Sans', sans-serif" }}>
+                  {tab.label}
+                  {tab.key === "budget" && budget && <span style={{ marginLeft: 8, background: "#0ea5e9", color: "white", borderRadius: 99, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>Baru</span>}
                 </button>
               ))}
             </div>
-          </div>
-
-          {error && (
-            <div style={{ background: "#fff5f5", border: "1px solid #fecaca", color: "#dc2626", padding: "12px 16px", borderRadius: 12, fontSize: 13 }}>
-              ⚠️ {error}
+            <div
+              id="itinerary-section"
+              className="result-scroll"
+              style={{ padding: 24, minHeight: 540, overflowY: "auto", maxHeight: "calc(100vh - 260px)" }}
+            >
+              {activeTab === "itinerary" ? <DayCards {...dayCardsProps} /> : <BudgetPanel {...budgetProps} />}
             </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: "100%", background: loading ? "#93c5fd" : "linear-gradient(135deg, #0062cc, #0194f3)",
-              color: "#fff", border: "none", borderRadius: 12, padding: "15px 0",
-              fontWeight: 700, fontSize: 15, cursor: loading ? "not-allowed" : "pointer",
-              boxShadow: "0 4px 14px rgba(1,148,243,0.35)", transition: "all 0.2s"
-            }}
-          >
-            {loading ? "✨ Generating itinerary..." : "✨ Generate Itinerary"}
-          </button>
-        </form>
-
-        {/* Result Panel */}
-        <div style={{ background: "#fff", borderRadius: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #edf0f5", minHeight: 600, display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "18px 24px", borderBottom: "1px solid #f0f3f8", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📋 Itinerary</span>
-            {result && (
-              <button
-                onClick={() => navigator.clipboard.writeText(result)}
-                style={{ fontSize: 12, color: "#0194f3", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 14px", background: "#eff6ff", cursor: "pointer" }}
-              >
-                Copy 📋
-              </button>
-            )}
-          </div>
-
-          <div style={{ flex: 1, padding: 24 }}>
-            {!result && !loading && (
-              <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "60px 0", gap: 16 }}>
-                <div style={{ width: 72, height: 72, background: "#eff6ff", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32 }}>
-                  🗺️
-                </div>
-                <div>
-                  <p style={{ fontWeight: 700, color: "#333", marginBottom: 6, fontSize: 15 }}>Itinerary belum dibuat</p>
-                  <p style={{ fontSize: 13, color: "#aaa", maxWidth: 260, lineHeight: 1.6 }}>
-                    Isi form di sebelah kiri dan klik Generate Itinerary untuk memulai.
-                  </p>
-                </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  {["🗼 Paris", "🌴 Bali", "🏯 Tokyo"].map((d) => (
-                    <span key={d} style={{ fontSize: 12, background: "#f4f6fb", color: "#888", padding: "5px 12px", borderRadius: 20, border: "1px solid #e8edf2" }}>{d}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {loading && (
-              <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, padding: "60px 0" }}>
-                <div style={{ width: 44, height: 44, border: "4px solid #bfdbfe", borderTopColor: "#0194f3", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                <div style={{ textAlign: "center" }}>
-                  <p style={{ fontWeight: 700, color: "#333", marginBottom: 4 }}>AI sedang merencanakan tripmu...</p>
-                  <p style={{ fontSize: 13, color: "#aaa" }}>Ini mungkin butuh beberapa detik</p>
-                </div>
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-              </div>
-            )}
-
-            {result && (
-              <div style={{ fontSize: 14, lineHeight: 1.8, color: "#374151", whiteSpace: "pre-wrap" }}>
-                {result}
-              </div>
-            )}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Mobile */}
+      {isMobile && (
+        <div style={{ padding: "16px 16px 100px" }}>
+          {activeTab === "form" && <FormFields {...formProps} />}
+          {activeTab === "itinerary" && (
+            <div id="itinerary-section" className="form-card">
+              <div className="result-scroll" style={{ padding: 16, minHeight: "60vh", overflowY: "auto" }}>
+                <DayCards {...dayCardsProps} />
+              </div>
+            </div>
+          )}
+          {activeTab === "budget" && (
+            <div className="form-card">
+              <div className="result-scroll" style={{ padding: 16, minHeight: "60vh", overflowY: "auto" }}>
+                <BudgetPanel {...budgetProps} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Bottom Nav - hanya mobile */}
+      {isMobile && (
+        <nav className="bottom-nav">
+          <button className={`bottom-tab ${activeTab === "form" ? "active" : ""}`} onClick={() => setActiveTab("form")}>
+            <span className="bottom-tab-icon">📋</span><span>Form</span><span className="bottom-tab-dot" />
+          </button>
+          <button className={`bottom-tab ${activeTab === "itinerary" ? "active" : ""}`} onClick={() => setActiveTab("itinerary")}>
+            <span className="bottom-tab-icon">🗺️</span><span>Itinerary</span><span className="bottom-tab-dot" />
+          </button>
+          <button className={`bottom-tab ${activeTab === "budget" ? "active" : ""}`} onClick={() => setActiveTab("budget")}>
+            <span className="bottom-tab-icon" style={{ position: "relative", display: "inline-block" }}>
+              💰{budget && <span style={{ position: "absolute", top: -2, right: -4, width: 8, height: 8, background: "#0ea5e9", borderRadius: "50%", border: "1.5px solid white" }} />}
+            </span>
+            <span>Budget</span><span className="bottom-tab-dot" />
+          </button>
+        </nav>
+      )}
     </div>
   );
 }
