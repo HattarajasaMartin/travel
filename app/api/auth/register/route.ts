@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase-server";
+import { createSupabaseServer } from "@/lib/supabase-server";
 
 export async function POST(req: NextRequest) {
   const { fullName, email, password } = await req.json();
@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data, error } = await supabaseServer.auth.signUp({
+  const supabase = await createSupabaseServer(); // ← tambah await
+
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
